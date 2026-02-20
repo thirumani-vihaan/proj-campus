@@ -5,8 +5,17 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Wallet, Clock, Briefcase, Star } from "lucide-react"
+import { Wallet, Clock, Briefcase, Star, TrendingUp, AlertCircle, FileText } from "lucide-react"
 import { Link } from "react-router-dom"
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogHeader,
+    DialogTitle,
+    DialogTrigger,
+    DialogFooter,
+} from "@/components/ui/dialog"
 
 export default function Dashboard() {
     const { session } = useAuth()
@@ -22,6 +31,11 @@ export default function Dashboard() {
     const [ongoingClientTasks, setOngoingClientTasks] = useState<any[]>([])
 
     const [loading, setLoading] = useState(true)
+
+    // Review Dialog State
+    const [rating, setRating] = useState(0)
+    const [taskToReview, setTaskToReview] = useState<string | null>(null)
+    const [reviewFreelancerId, setReviewFreelancerId] = useState<string | null>(null)
 
     useEffect(() => {
         if (!session?.user?.id) return
@@ -40,11 +54,11 @@ export default function Dashboard() {
                 setEscrowBal(wallet.locked_balance || 0)
             }
 
-            // 3. Freelancer: Active Assignments
+            // 3. Freelancer: Active Assignments (and Submitted for review)
             const { data: assignments } = await supabase.from('tasks')
                 .select('*, profiles:client_id(full_name)')
                 .eq('assigned_freelancer_id', uid)
-                .eq('status', 'ASSIGNED')
+                .in('status', ['ASSIGNED', 'SUBMITTED'])
             if (assignments) setActiveAssignments(assignments)
 
             // 4. Freelancer: Pending Applications
@@ -54,19 +68,35 @@ export default function Dashboard() {
                 .eq('status', 'PENDING')
             if (apps) setPendingApps(apps)
 
-            // 5. Client: Ongoing Tasks
+            // 5. Freelancer: Completed Tasks
+            const { data: fCompleted } = await supabase.from('tasks')
+                .select('*, profiles:client_id(full_name)')
+                .eq('assigned_freelancer_id', uid)
+                .eq('status', 'COMPLETED')
+                .order('updated_at', { ascending: false })
+            if (fCompleted) setCompletedGigs(fCompleted)
+
+            // 6. Client: Ongoing Tasks (and Submitted)
             const { data: ongoingTasks } = await supabase.from('tasks')
                 .select('*, profiles:assigned_freelancer_id(full_name)')
                 .eq('client_id', uid)
-                .eq('status', 'ASSIGNED')
+                .in('status', ['ASSIGNED', 'SUBMITTED'])
             if (ongoingTasks) setOngoingClientTasks(ongoingTasks)
 
-            // 6. Client: Action Required (Tasks you posted that have pending applications)
+            // 7. Client: Completed Tasks
+            const { data: cCompleted } = await supabase.from('tasks')
+                .select('*, profiles:assigned_freelancer_id(full_name)')
+                .eq('client_id', uid)
+                .eq('status', 'COMPLETED')
+                .order('updated_at', { ascending: false })
+            if (cCompleted) setCompletedClientTasks(cCompleted)
+
+            // 8. Client: Action Required (Tasks you posted that have pending applications)
             const { data: pendingTaskApps } = await supabase.from('tasks')
                 .select(`
-                    id, title, created_at,
-                    applications(count)
-                `)
+id, title, created_at,
+    applications(count)
+        `)
                 .eq('client_id', uid)
                 .eq('status', 'OPEN')
                 .eq('applications.status', 'PENDING')
@@ -82,6 +112,74 @@ export default function Dashboard() {
 
         fetchDashboardData()
     }, [session?.user?.id])
+
+    const handleReviewSubmit = async () => {
+        if (!taskToReview || !reviewFreelancerId || rating === 0) return
+
+        try {
+            // 1. Update Task Status
+            const { error: taskError } = await supabase
+                .from('tasks')
+                .update({ status: 'COMPLETED' })
+                .eq('id', taskToReview)
+
+            if (taskError) throw taskError
+
+            // 2. Fetch Freelancer Current Profile to calculate new score
+            const { data: profile } = await supabase
+                .from('profiles')
+                .select('reliability_score, completed_tasks_count')
+                .eq('id', reviewFreelancerId)
+                .single()
+
+            if (profile) {
+                const currentScore = profile.reliability_score || 0
+                const currentCount = profile.completed_tasks_count || 0
+
+                // Simple moving average calculation for score MVP
+                // Convert 1-5 star rating to percentage (e.g. 5 = 100, 4 = 80)
+                const ratingPercentage = (rating / 5) * 100
+                const newScore = Math.round(((currentScore * currentCount) + ratingPercentage) / (currentCount + 1))
+
+                // 3. Update Freelancer Score & Count
+                await supabase
+                    .from('profiles')
+                    .update({
+                        reliability_score: newScore,
+                        completed_tasks_count: currentCount + 1
+                    })
+                    .eq('id', reviewFreelancerId)
+            }
+
+            alert("Task marked as complete and review submitted!")
+
+            // Remove from local ongoing tasks state
+            setOngoingClientTasks(prev => prev.filter(t => t.id !== taskToReview))
+
+            // Reset modal
+            setRating(0)
+            setTaskToReview(null)
+            setReviewFreelancerId(null)
+
+        } catch (err) {
+            console.error("Failed to complete task:", err)
+            alert("Failed to complete task.")
+        }
+    }
+
+    const handleMarkSubmitted = async (taskId: string) => {
+        try {
+            const { error } = await supabase.from('tasks').update({ status: 'SUBMITTED' }).eq('id', taskId)
+            if (error) throw error
+
+            alert("Work submitted for review!")
+            // Update local state
+            setActiveAssignments(prev => prev.map(t => t.id === taskId ? { ...t, status: 'SUBMITTED' } : t))
+        } catch (err) {
+            console.error("Failed to submit task:", err)
+            alert("Failed to submit work.")
+        }
+    }
 
     if (!session) return <div className="p-8 text-center">Please log in to view dashboard.</div>
     if (loading) return <div className="p-8 text-center">Loading dashboard...</div>
@@ -159,10 +257,22 @@ export default function Dashboard() {
                                         </div>
                                         <div className="flex flex-col items-end gap-2">
                                             <div className="font-bold text-green-600">₹{task.budget}</div>
-                                            <Badge className="mt-1" variant="secondary">In Progress</Badge>
-                                            <Link to={`/chat/${task.id}`}>
-                                                <Button size="sm" variant="outline">Message Client</Button>
-                                            </Link>
+                                            <Badge className="mt-1" variant={task.status === 'SUBMITTED' ? 'default' : 'secondary'}>
+                                                {task.status === 'SUBMITTED' ? 'Under Review' : 'In Progress'}
+                                            </Badge>
+                                            <div className="flex gap-2">
+                                                <Link to={`/ chat / ${task.id} `}>
+                                                    <Button size="sm" variant="outline">Message Client</Button>
+                                                </Link>
+                                                {task.status === 'ASSIGNED' && (
+                                                    <Button
+                                                        size="sm"
+                                                        onClick={() => handleMarkSubmitted(task.id)}
+                                                    >
+                                                        Submit Work
+                                                    </Button>
+                                                )}
+                                            </div>
                                         </div>
                                     </div>
                                 ))}
@@ -191,21 +301,23 @@ export default function Dashboard() {
                                         <div className="flex flex-col items-end gap-2">
                                             <Badge variant="outline">Pending</Badge>
                                             {app.tasks?.client_id && (
-                                                <Link to={`/chat/${app.task_id}/${app.tasks.client_id}`}>
+                                                <Link to={`/ chat / ${app.task_id}/${app.tasks.client_id}`}>
                                                     <Button size="sm" variant="ghost">Message Client</Button>
-                                                </Link>
+                                                </Link >
                                             )}
-                                        </div>
-                                    </div>
+                                        </div >
+                                    </div >
                                 ))}
-                                {pendingApps.length === 0 && (
-                                    <div className="text-sm text-muted-foreground text-center py-4">No pending applications.</div>
-                                )}
-                            </CardContent>
-                        </Card>
+                                {
+                                    pendingApps.length === 0 && (
+                                        <div className="text-sm text-muted-foreground text-center py-4">No pending applications.</div>
+                                    )
+                                }
+                            </CardContent >
+                        </Card >
 
-                    </div>
-                </TabsContent>
+                    </div >
+                </TabsContent >
 
                 <TabsContent value="client" className="space-y-6">
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -257,10 +369,57 @@ export default function Dashboard() {
                                             <p className="text-sm text-muted-foreground">Freelancer: {task.profiles?.full_name} • Due: {new Date(task.deadline).toLocaleDateString()}</p>
                                         </div>
                                         <div className="flex flex-col items-end gap-2">
-                                            <Badge variant="secondary">Assigned</Badge>
-                                            <Link to={`/chat/${task.id}`}>
-                                                <Button size="sm" variant="outline">Message</Button>
-                                            </Link>
+                                            <Badge variant={task.status === 'SUBMITTED' ? 'default' : 'secondary'}>
+                                                {task.status === 'SUBMITTED' ? 'Pending Review' : 'Assigned'}
+                                            </Badge>
+                                            <div className="flex gap-2">
+                                                <Link to={`/chat/${task.id}`}>
+                                                    <Button size="sm" variant="outline">Message</Button>
+                                                </Link>
+                                                {task.status === 'SUBMITTED' && (
+                                                    <Dialog>
+                                                        <DialogTrigger asChild>
+                                                            <Button size="sm" onClick={() => {
+                                                                setTaskToReview(task.id)
+                                                                setReviewFreelancerId(task.assigned_freelancer_id)
+                                                            }}>Review & Complete</Button>
+                                                        </DialogTrigger>
+                                                        <DialogContent>
+                                                            <DialogHeader>
+                                                                <DialogTitle>Review Work</DialogTitle>
+                                                                <DialogDescription>
+                                                                    Rate {task.profiles?.full_name}'s work. This will release the payment and mark the task as complete.
+                                                                </DialogDescription>
+                                                            </DialogHeader>
+                                                            <div className="py-6 flex flex-col items-center space-y-4">
+                                                                <h4 className="font-medium text-lg">Leave a Rating (1-5 Stars)</h4>
+                                                                <div className="flex gap-2">
+                                                                    {[1, 2, 3, 4, 5].map((star) => (
+                                                                        <Button
+                                                                            key={star}
+                                                                            variant={rating >= star ? 'default' : 'outline'}
+                                                                            size="icon"
+                                                                            className="rounded-full w-12 h-12"
+                                                                            onClick={() => setRating(star)}
+                                                                        >
+                                                                            <Star className={`h-6 w-6 ${rating >= star ? 'fill-current' : ''}`} />
+                                                                        </Button>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                            <DialogFooter>
+                                                                <Button
+                                                                    onClick={handleReviewSubmit}
+                                                                    disabled={rating === 0}
+                                                                    className="w-full"
+                                                                >
+                                                                    Confirm Completion
+                                                                </Button>
+                                                            </DialogFooter>
+                                                        </DialogContent>
+                                                    </Dialog>
+                                                )}
+                                            </div>
                                         </div>
                                     </div>
                                 ))}
@@ -269,10 +428,9 @@ export default function Dashboard() {
                                 )}
                             </CardContent>
                         </Card>
-
                     </div>
                 </TabsContent>
-            </Tabs>
-        </div>
+            </Tabs >
+        </div >
     )
 }
