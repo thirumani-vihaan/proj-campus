@@ -1,0 +1,13 @@
+﻿
+> proj-antigravity@0.0.0 build
+> tsc -b && vite build
+
+src/context/AuthContext.tsx(2,10): error TS1484: 'Session' is a type and must be imported using a type-only import when 'verbatimModuleSyntax' is enabled.
+src/context/AuthContext.tsx(2,19): error TS1484: 'User' is a type and must be imported using a type-only import when 'verbatimModuleSyntax' is enabled.
+src/pages/Chat.tsx(17,11): error TS6133: 'session' is declared but its value is never read.
+src/pages/Dashboard.tsx(1,1): error TS6133: 'useState' is declared but its value is never read.
+src/pages/Dashboard.tsx(7,18): error TS6133: 'CheckCircle2' is declared but its value is never read.
+src/pages/Dashboard.tsx(11,11): error TS6133: 'session' is declared but its value is never read.
+src/pages/TaskDetails.tsx(8,34): error TS6133: 'AvatarImage' is declared but its value is never read.
+src/pages/TaskDetails.tsx(31,11): error TS6133: 'id' is declared but its value is never read.
+src/pages/Wallet.tsx(4,26): error TS6133: 'ArrowUpRight' is declared but its value is never read.
