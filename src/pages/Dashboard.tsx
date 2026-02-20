@@ -26,9 +26,11 @@ export default function Dashboard() {
 
     const [activeAssignments, setActiveAssignments] = useState<any[]>([])
     const [pendingApps, setPendingApps] = useState<any[]>([])
+    const [completedGigs, setCompletedGigs] = useState<any[]>([])
 
     const [actionRequiredTasks, setActionRequiredTasks] = useState<any[]>([])
     const [ongoingClientTasks, setOngoingClientTasks] = useState<any[]>([])
+    const [completedClientTasks, setCompletedClientTasks] = useState<any[]>([])
 
     const [loading, setLoading] = useState(true)
 
@@ -303,21 +305,47 @@ id, title, created_at,
                                             {app.tasks?.client_id && (
                                                 <Link to={`/ chat / ${app.task_id}/${app.tasks.client_id}`}>
                                                     <Button size="sm" variant="ghost">Message Client</Button>
-                                                </Link >
+                                                </Link>
                                             )}
-                                        </div >
-                                    </div >
+                                        </div>
+                                    </div>
                                 ))}
-                                {
-                                    pendingApps.length === 0 && (
-                                        <div className="text-sm text-muted-foreground text-center py-4">No pending applications.</div>
-                                    )
-                                }
-                            </CardContent >
-                        </Card >
+                                {pendingApps.length === 0 && (
+                                    <div className="text-sm text-muted-foreground text-center py-4">No pending applications.</div>
+                                )}
+                            </CardContent>
+                        </Card>
 
-                    </div >
-                </TabsContent >
+                        {/* Completed Freelancer Gigs */}
+                        <Card className="opacity-75">
+                            <CardHeader>
+                                <CardTitle className="flex items-center gap-2">
+                                    <FileText className="h-5 w-5 text-green-500" />
+                                    Completed Gigs ({completedGigs.length})
+                                </CardTitle>
+                                <CardDescription>Tasks you have successfully finished.</CardDescription>
+                            </CardHeader>
+                            <CardContent className="space-y-4">
+                                {completedGigs.map(task => (
+                                    <div key={task.id} className="border rounded-lg p-4 flex justify-between items-center bg-green-50/50 dark:bg-green-900/10">
+                                        <div>
+                                            <h4 className="font-semibold">{task.title}</h4>
+                                            <p className="text-sm text-muted-foreground">Client: {task.profiles?.full_name}</p>
+                                        </div>
+                                        <div className="flex flex-col items-end gap-2">
+                                            <Badge variant="outline" className="text-green-600 border-green-200">Completed</Badge>
+                                            <div className="font-bold text-green-600 text-sm">₹{task.budget} Earned</div>
+                                        </div>
+                                    </div>
+                                ))}
+                                {completedGigs.length === 0 && (
+                                    <div className="text-sm text-muted-foreground text-center py-4">No completed gigs yet.</div>
+                                )}
+                            </CardContent>
+                        </Card>
+
+                    </div>
+                </TabsContent>
 
                 <TabsContent value="client" className="space-y-6">
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -428,6 +456,35 @@ id, title, created_at,
                                 )}
                             </CardContent>
                         </Card>
+
+                        {/* Completed Client Tasks */}
+                        <Card className="opacity-75">
+                            <CardHeader>
+                                <CardTitle className="flex items-center gap-2">
+                                    <FileText className="h-5 w-5 text-green-500" />
+                                    Completed Tasks ({completedClientTasks.length})
+                                </CardTitle>
+                                <CardDescription>Tasks that have been successfully finished and paid.</CardDescription>
+                            </CardHeader>
+                            <CardContent className="space-y-4">
+                                {completedClientTasks.map(task => (
+                                    <div key={task.id} className="border rounded-lg p-4 flex justify-between items-center bg-green-50/50 dark:bg-green-900/10">
+                                        <div>
+                                            <h4 className="font-semibold">{task.title}</h4>
+                                            <p className="text-sm text-muted-foreground">Completed by: {task.profiles?.full_name}</p>
+                                        </div>
+                                        <div className="flex flex-col items-end gap-2">
+                                            <Badge variant="outline" className="text-green-600 border-green-200">Completed</Badge>
+                                            <div className="font-bold text-green-600 text-sm">₹{task.budget} Paid</div>
+                                        </div>
+                                    </div>
+                                ))}
+                                {completedClientTasks.length === 0 && (
+                                    <div className="text-sm text-muted-foreground text-center py-4">No completed tasks yet.</div>
+                                )}
+                            </CardContent>
+                        </Card>
+
                     </div>
                 </TabsContent>
             </Tabs >
