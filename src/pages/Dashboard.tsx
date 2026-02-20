@@ -1,4 +1,6 @@
-
+import { useState, useEffect } from "react"
+import { useAuth } from "@/context/AuthContext"
+import { supabase } from "@/lib/supabase"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
@@ -7,10 +9,82 @@ import { Wallet, Clock, Briefcase, Star } from "lucide-react"
 import { Link } from "react-router-dom"
 
 export default function Dashboard() {
-    // Mock data for Freelancer
-    const walletBalance = 1250
-    const escrowBalance = 500
-    const reliabilityScore = 4.8
+    const { session } = useAuth()
+
+    const [walletBal, setWalletBal] = useState(0)
+    const [escrowBal, setEscrowBal] = useState(0)
+    const [score, setScore] = useState(0)
+
+    const [activeAssignments, setActiveAssignments] = useState<any[]>([])
+    const [pendingApps, setPendingApps] = useState<any[]>([])
+
+    const [actionRequiredTasks, setActionRequiredTasks] = useState<any[]>([])
+    const [ongoingClientTasks, setOngoingClientTasks] = useState<any[]>([])
+
+    const [loading, setLoading] = useState(true)
+
+    useEffect(() => {
+        if (!session?.user?.id) return
+
+        const fetchDashboardData = async () => {
+            const uid = session.user.id
+
+            // 1. Fetch Profile info (Score)
+            const { data: profile } = await supabase.from('profiles').select('reliability_score').eq('id', uid).single()
+            if (profile) setScore(profile.reliability_score || 0)
+
+            // 2. Fetch Wallet
+            const { data: wallet } = await supabase.from('wallets').select('available_balance, locked_balance').eq('user_id', uid).single()
+            if (wallet) {
+                setWalletBal(wallet.available_balance || 0)
+                setEscrowBal(wallet.locked_balance || 0)
+            }
+
+            // 3. Freelancer: Active Assignments
+            const { data: assignments } = await supabase.from('tasks')
+                .select('*, profiles:client_id(full_name)')
+                .eq('assigned_freelancer_id', uid)
+                .eq('status', 'ASSIGNED')
+            if (assignments) setActiveAssignments(assignments)
+
+            // 4. Freelancer: Pending Applications
+            const { data: apps } = await supabase.from('applications')
+                .select('*, tasks(title)')
+                .eq('freelancer_id', uid)
+                .eq('status', 'PENDING')
+            if (apps) setPendingApps(apps)
+
+            // 5. Client: Ongoing Tasks
+            const { data: ongoingTasks } = await supabase.from('tasks')
+                .select('*, profiles:assigned_freelancer_id(full_name)')
+                .eq('client_id', uid)
+                .eq('status', 'ASSIGNED')
+            if (ongoingTasks) setOngoingClientTasks(ongoingTasks)
+
+            // 6. Client: Action Required (Tasks you posted that have pending applications)
+            const { data: pendingTaskApps } = await supabase.from('tasks')
+                .select(`
+                    id, title, created_at,
+                    applications(count)
+                `)
+                .eq('client_id', uid)
+                .eq('status', 'OPEN')
+                .eq('applications.status', 'PENDING')
+
+            if (pendingTaskApps) {
+                // Filter out tasks that have 0 pending apps
+                const actionTasks = pendingTaskApps.filter((t: any) => t.applications[0]?.count > 0)
+                setActionRequiredTasks(actionTasks)
+            }
+
+            setLoading(false)
+        }
+
+        fetchDashboardData()
+    }, [session?.user?.id])
+
+    if (!session) return <div className="p-8 text-center">Please log in to view dashboard.</div>
+    if (loading) return <div className="p-8 text-center">Loading dashboard...</div>
 
     return (
         <div className="container mx-auto py-8 px-4">
@@ -32,7 +106,7 @@ export default function Dashboard() {
                         <Wallet className="h-4 w-4 text-primary" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">₹{walletBalance}</div>
+                        <div className="text-2xl font-bold">₹{walletBal}</div>
                         <p className="text-xs text-muted-foreground mt-1">Ready to withdraw or spend</p>
                     </CardContent>
                 </Card>
@@ -42,7 +116,7 @@ export default function Dashboard() {
                         <Briefcase className="h-4 w-4 text-muted-foreground" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold text-muted-foreground">₹{escrowBalance}</div>
+                        <div className="text-2xl font-bold text-muted-foreground">₹{escrowBal}</div>
                         <p className="text-xs text-muted-foreground mt-1">Held securely for ongoing tasks</p>
                     </CardContent>
                 </Card>
@@ -52,8 +126,8 @@ export default function Dashboard() {
                         <Star className="h-4 w-4 text-yellow-500" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">{reliabilityScore} / 5.0</div>
-                        <p className="text-xs text-muted-foreground mt-1">Based on 12 completed tasks</p>
+                        <div className="text-2xl font-bold">{score} / 5.0</div>
+                        <p className="text-xs text-muted-foreground mt-1">Official platform rating</p>
                     </CardContent>
                 </Card>
             </div>
@@ -72,21 +146,26 @@ export default function Dashboard() {
                             <CardHeader>
                                 <CardTitle className="flex items-center gap-2">
                                     <Briefcase className="h-5 w-5 text-blue-500" />
-                                    Active Assignments (1)
+                                    Active Assignments ({activeAssignments.length})
                                 </CardTitle>
                                 <CardDescription>Work you are currently doing for clients.</CardDescription>
                             </CardHeader>
                             <CardContent className="space-y-4">
-                                <div className="border rounded-lg p-4 flex justify-between items-center bg-muted/20">
-                                    <div>
-                                        <h4 className="font-semibold">Fix bug in React App</h4>
-                                        <p className="text-sm text-muted-foreground">Client: John D. • Due Tomorrow</p>
+                                {activeAssignments.map(task => (
+                                    <div key={task.id} className="border rounded-lg p-4 flex justify-between items-center bg-muted/20">
+                                        <div>
+                                            <h4 className="font-semibold">{task.title}</h4>
+                                            <p className="text-sm text-muted-foreground">Client: {task.profiles?.full_name} • Due: {new Date(task.deadline).toLocaleDateString()}</p>
+                                        </div>
+                                        <div className="text-right">
+                                            <div className="font-bold text-green-600">₹{task.budget}</div>
+                                            <Badge className="mt-1" variant="secondary">In Progress</Badge>
+                                        </div>
                                     </div>
-                                    <div className="text-right">
-                                        <div className="font-bold text-green-600">₹500</div>
-                                        <Badge className="mt-1" variant="secondary">In Progress</Badge>
-                                    </div>
-                                </div>
+                                ))}
+                                {activeAssignments.length === 0 && (
+                                    <div className="text-sm text-muted-foreground text-center py-4">No active assignments.</div>
+                                )}
                             </CardContent>
                         </Card>
 
@@ -95,25 +174,23 @@ export default function Dashboard() {
                             <CardHeader>
                                 <CardTitle className="flex items-center gap-2">
                                     <Clock className="h-5 w-5 text-orange-500" />
-                                    Pending Applications (2)
+                                    Pending Applications ({pendingApps.length})
                                 </CardTitle>
                                 <CardDescription>Waiting for client approval.</CardDescription>
                             </CardHeader>
                             <CardContent className="space-y-4">
-                                <div className="border rounded-lg p-4 flex justify-between items-center opacity-80">
-                                    <div>
-                                        <h4 className="font-semibold">Logo Design for Society</h4>
-                                        <p className="text-sm text-muted-foreground">Applied 2 hours ago</p>
+                                {pendingApps.map(app => (
+                                    <div key={app.id} className="border rounded-lg p-4 flex justify-between items-center opacity-80">
+                                        <div>
+                                            <h4 className="font-semibold">{app.tasks?.title || "Unknown Task"}</h4>
+                                            <p className="text-sm text-muted-foreground">Applied {new Date(app.created_at).toLocaleDateString()}</p>
+                                        </div>
+                                        <Badge variant="outline">Pending</Badge>
                                     </div>
-                                    <Badge variant="outline">Pending</Badge>
-                                </div>
-                                <div className="border rounded-lg p-4 flex justify-between items-center opacity-80">
-                                    <div>
-                                        <h4 className="font-semibold">Python Script Debugging</h4>
-                                        <p className="text-sm text-muted-foreground">Applied yesterday</p>
-                                    </div>
-                                    <Badge variant="outline">Pending</Badge>
-                                </div>
+                                ))}
+                                {pendingApps.length === 0 && (
+                                    <div className="text-sm text-muted-foreground text-center py-4">No pending applications.</div>
+                                )}
                             </CardContent>
                         </Card>
 
@@ -128,23 +205,28 @@ export default function Dashboard() {
                             <CardHeader>
                                 <CardTitle className="flex items-center gap-2">
                                     <Star className="h-5 w-5 text-yellow-500" />
-                                    Action Required (1)
+                                    Action Required ({actionRequiredTasks.length})
                                 </CardTitle>
                                 <CardDescription>Review applicants for your posted tasks.</CardDescription>
                             </CardHeader>
-                            <CardContent>
-                                <div className="border border-primary/20 rounded-lg p-4 bg-primary/5">
-                                    <div className="flex justify-between items-start mb-3">
-                                        <div>
-                                            <h4 className="font-semibold text-lg">Build React Frontend</h4>
-                                            <p className="text-sm text-muted-foreground">Posted 5 hours ago</p>
+                            <CardContent className="space-y-4">
+                                {actionRequiredTasks.map(task => (
+                                    <div key={task.id} className="border border-primary/20 rounded-lg p-4 bg-primary/5">
+                                        <div className="flex justify-between items-start mb-3">
+                                            <div>
+                                                <h4 className="font-semibold text-lg">{task.title}</h4>
+                                                <p className="text-sm text-muted-foreground">Posted {new Date(task.created_at).toLocaleDateString()}</p>
+                                            </div>
+                                            <Badge variant="destructive">{task.applications[0]?.count} New Applicants</Badge>
                                         </div>
-                                        <Badge variant="destructive">2 New Applicants</Badge>
+                                        <Link to={`/tasks/${task.id}`}>
+                                            <Button className="w-full" variant="default">Review Applicants</Button>
+                                        </Link>
                                     </div>
-                                    <Link to="/tasks/1">
-                                        <Button className="w-full" variant="default">Review Applicants</Button>
-                                    </Link>
-                                </div>
+                                ))}
+                                {actionRequiredTasks.length === 0 && (
+                                    <div className="text-sm text-muted-foreground text-center py-4">No action required on any tasks.</div>
+                                )}
                             </CardContent>
                         </Card>
 
@@ -153,21 +235,28 @@ export default function Dashboard() {
                             <CardHeader>
                                 <CardTitle className="flex items-center gap-2">
                                     <Clock className="h-5 w-5 text-blue-500" />
-                                    Ongoing Tasks (1)
+                                    Ongoing Tasks ({ongoingClientTasks.length})
                                 </CardTitle>
                                 <CardDescription>Tasks currently being done by freelancers.</CardDescription>
                             </CardHeader>
-                            <CardContent>
-                                <div className="border rounded-lg p-4 flex justify-between items-center bg-muted/20">
-                                    <div>
-                                        <h4 className="font-semibold">Need Printouts from Library</h4>
-                                        <p className="text-sm text-muted-foreground">Freelancer: Amit S. • Due Today</p>
+                            <CardContent className="space-y-4">
+                                {ongoingClientTasks.map(task => (
+                                    <div key={task.id} className="border rounded-lg p-4 flex justify-between items-center bg-muted/20">
+                                        <div>
+                                            <h4 className="font-semibold">{task.title}</h4>
+                                            <p className="text-sm text-muted-foreground">Freelancer: {task.profiles?.full_name} • Due: {new Date(task.deadline).toLocaleDateString()}</p>
+                                        </div>
+                                        <div className="flex flex-col items-end gap-2">
+                                            <Badge variant="secondary">Assigned</Badge>
+                                            <Link to={`/chat/${task.id}`}>
+                                                <Button size="sm" variant="outline">Message</Button>
+                                            </Link>
+                                        </div>
                                     </div>
-                                    <div className="flex flex-col items-end gap-2">
-                                        <Badge variant="secondary">Assigned</Badge>
-                                        <Button size="sm" variant="outline">Message</Button>
-                                    </div>
-                                </div>
+                                ))}
+                                {ongoingClientTasks.length === 0 && (
+                                    <div className="text-sm text-muted-foreground text-center py-4">No ongoing tasks.</div>
+                                )}
                             </CardContent>
                         </Card>
 

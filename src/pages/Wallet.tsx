@@ -1,3 +1,6 @@
+import { useState, useEffect } from "react"
+import { useAuth } from "@/context/AuthContext"
+import { supabase } from "@/lib/supabase"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -10,8 +13,33 @@ const MOCK_TRANSACTIONS = [
 ]
 
 export default function WalletView() {
-    const availableBalance = 1250
-    const lockedBalance = 500
+    const { session } = useAuth()
+
+    const [availableBalance, setAvailableBalance] = useState(0)
+    const [lockedBalance, setLockedBalance] = useState(0)
+    const [loading, setLoading] = useState(true)
+
+    useEffect(() => {
+        if (!session?.user?.id) return
+
+        const fetchWallet = async () => {
+            const { data, error } = await supabase
+                .from('wallets')
+                .select('available_balance, locked_balance')
+                .eq('user_id', session.user.id)
+                .single()
+
+            if (data) {
+                setAvailableBalance(data.available_balance || 0)
+                setLockedBalance(data.locked_balance || 0)
+            } else if (error && error.code !== 'PGRST116') {
+                console.error("Error fetching wallet:", error)
+            }
+            setLoading(false)
+        }
+
+        fetchWallet()
+    }, [session?.user?.id])
 
     return (
         <div className="container mx-auto py-8 px-4 max-w-4xl">
@@ -23,7 +51,9 @@ export default function WalletView() {
                         <CardTitle className="text-lg font-medium opacity-90">Available Balance</CardTitle>
                     </CardHeader>
                     <CardContent>
-                        <div className="text-4xl font-bold mb-6">₹{availableBalance}</div>
+                        <div className="text-4xl font-bold mb-6">
+                            {loading ? "..." : `₹${availableBalance}`}
+                        </div>
                         <div className="flex gap-3">
                             <Button variant="secondary" className="w-full">Deposit Funds</Button>
                             <Button variant="outline" className="w-full bg-transparent hover:bg-primary-foreground/10 text-primary-foreground border-primary-foreground/20">Withdraw</Button>
@@ -38,7 +68,9 @@ export default function WalletView() {
                         </CardTitle>
                     </CardHeader>
                     <CardContent>
-                        <div className="text-4xl font-bold text-muted-foreground mb-4">₹{lockedBalance}</div>
+                        <div className="text-4xl font-bold text-muted-foreground mb-4">
+                            {loading ? "..." : `₹${lockedBalance}`}
+                        </div>
                         <p className="text-sm text-muted-foreground leading-relaxed">
                             These funds are temporarily held securely by the platform for ongoing tasks to guarantee payment to freelancers.
                         </p>
@@ -49,12 +81,12 @@ export default function WalletView() {
             <Card>
                 <CardHeader>
                     <CardTitle>Recent Transactions</CardTitle>
-                    <CardDescription>Your complete financial history on the platform.</CardDescription>
+                    <CardDescription>Your complete financial history on the platform. (Coming Soon)</CardDescription>
                 </CardHeader>
                 <CardContent>
                     <div className="space-y-4">
                         {MOCK_TRANSACTIONS.map(tx => (
-                            <div key={tx.id} className="flex items-center justify-between p-4 border rounded-lg bg-background">
+                            <div key={tx.id} className="flex items-center justify-between p-4 border rounded-lg bg-background opacity-70">
                                 <div className="flex items-center gap-4">
                                     <div className={`p-2 rounded-full ${tx.type === 'deposit' ? 'bg-green-100 text-green-600' :
                                         tx.type === 'escrow_lock' ? 'bg-orange-100 text-orange-600' :

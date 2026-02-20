@@ -1,53 +1,118 @@
-import { useState } from "react"
-import { Link } from "react-router-dom"
+import { useState, useEffect } from "react"
+import { useParams, Link } from "react-router-dom"
 import { useAuth } from "@/context/AuthContext"
+import { supabase } from "@/lib/supabase"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 
-// Mock data
-const MOCK_TASK = {
-    id: "1",
-    title: "Build React Frontend",
-    description: "I need a complete React frontend built for my campus startup idea. The design is ready in Figma. You must know TailwindCSS.",
-    category: "coding",
-    budget: 800,
-    deadline: "2026-03-01T12:00:00",
-    priority: "urgent",
-    status: "OPEN",
-    tags: ["React", "CSS", "Tailwind"],
-    client_id: "user_client_1",
-    client_name: "Sarah Jenkins"
-}
-
-const MOCK_APPLICANTS = [
-    { id: "app1", freelancer_id: "user_free_1", name: "Alex Kumar", reliability: 4.8, pitch: "I've built 4 React apps. Can do this in 2 days." },
-    { id: "app2", freelancer_id: "user_free_2", name: "Priya Sharma", reliability: 4.2, pitch: "Available full-time tomorrow to finish this fast." }
-]
-
 export default function TaskDetails() {
+    const { id } = useParams()
     const { session } = useAuth()
 
-    // MOCK: Toggle this to see the client view vs freelancer view
-    const isClientOwner = session?.user?.id === MOCK_TASK.client_id
+    const [task, setTask] = useState<any>(null)
+    const [applicants, setApplicants] = useState<any[]>([])
+    const [loading, setLoading] = useState(true)
+    const [error, setError] = useState<string | null>(null)
+
     const [pitch, setPitch] = useState("")
     const [applied, setApplied] = useState(false)
+    const [actionLoading, setActionLoading] = useState(false)
 
-    const handleApply = (e: React.FormEvent) => {
+    useEffect(() => {
+        const fetchDetails = async () => {
+            if (!id) return
+
+            try {
+                // Fetch Task
+                const { data: taskData, error: taskError } = await supabase
+                    .from("tasks")
+                    .select("*, profiles:client_id(full_name)")
+                    .eq("id", id)
+                    .single()
+
+                if (taskError) throw taskError
+                setTask(taskData)
+
+                // Fetch Applications
+                const { data: appData, error: appError } = await supabase
+                    .from("applications")
+                    .select("*, profiles:freelancer_id(full_name, reliability_score)")
+                    .eq("task_id", id)
+
+                if (appError) throw appError
+                setApplicants(appData || [])
+
+                // Check if current user already applied
+                if (session?.user?.id) {
+                    const hasApplied = appData?.some(app => app.freelancer_id === session.user.id)
+                    setApplied(!!hasApplied)
+                }
+            } catch (err: any) {
+                console.error("Error fetching task details:", err)
+                setError("Task not found or failed to load.")
+            } finally {
+                setLoading(false)
+            }
+        }
+
+        fetchDetails()
+    }, [id, session?.user?.id])
+
+    const isClientOwner = session?.user?.id === task?.client_id
+
+    const handleApply = async (e: React.FormEvent) => {
         e.preventDefault()
-        if (!pitch) return
-        setApplied(true)
-        alert("Application sent successfully!")
+        if (!pitch || !session?.user?.id || !task) return
+
+        setActionLoading(true)
+        try {
+            const { error: applyError } = await supabase.from("applications").insert({
+                task_id: task.id,
+                freelancer_id: session.user.id,
+                pitch_message: pitch
+            })
+
+            if (applyError) throw applyError
+
+            setApplied(true)
+            alert("Application sent successfully!")
+        } catch (err: any) {
+            console.error(err)
+            alert("Failed to apply: " + err.message)
+        } finally {
+            setActionLoading(false)
+        }
     }
 
-    const handleAssign = (applicantName: string) => {
-        alert(`Task assigned to ${applicantName}! Escrow flow would start now.`)
+    const handleAssign = async (appId: string, freelancerId: string) => {
+        if (!confirm("Are you sure you want to assign this freelancer?")) return
+
+        setActionLoading(true)
+        try {
+            // Update application status
+            await supabase.from("applications").update({ status: 'ACCEPTED' }).eq('id', appId)
+            // Update task status and assigned freelancer
+            await supabase.from("tasks").update({
+                status: 'ASSIGNED',
+                assigned_freelancer_id: freelancerId
+            }).eq('id', task.id)
+
+            alert("Freelancer assigned successfully!")
+            // Refresh
+            window.location.reload()
+        } catch (err: any) {
+            console.error(err)
+            alert("Failed to assign freelancer.")
+        } finally {
+            setActionLoading(false)
+        }
     }
 
-    // Assuming task is found
-    const task = MOCK_TASK
+    if (loading) return <div className="container py-20 text-center">Loading task details...</div>
+    if (error || !task) return <div className="container py-20 text-center text-red-500">{error || "Task not found."}</div>
 
     return (
         <div className="container mx-auto py-8 px-4 grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -56,14 +121,14 @@ export default function TaskDetails() {
                 <div className="space-y-4">
                     <div className="flex flex-wrap items-center gap-3">
                         <Badge variant="secondary" className="capitalize">{task.category}</Badge>
-                        <Badge variant={task.priority === 'urgent' ? 'destructive' : 'outline'} className="capitalize">{task.priority}</Badge>
+                        <Badge variant={task.priority_level === 'urgent' ? 'destructive' : 'outline'} className="capitalize">{task.priority_level}</Badge>
                         <Badge className="bg-green-100 text-green-800 hover:bg-green-100">{task.status}</Badge>
                     </div>
 
                     <h1 className="text-3xl font-bold">{task.title}</h1>
 
                     <div className="flex items-center gap-2 text-sm text-muted-foreground border-b pb-4">
-                        <span>Posted by <span className="font-semibold text-foreground">{task.client_name}</span></span>
+                        <span>Posted by <span className="font-semibold text-foreground">{task.profiles?.full_name || "Unknown"}</span></span>
                         <span>•</span>
                         <span>Deadline: {new Date(task.deadline).toLocaleString()}</span>
                     </div>
@@ -74,14 +139,16 @@ export default function TaskDetails() {
                     <p className="whitespace-pre-wrap leading-relaxed text-muted-foreground">{task.description}</p>
                 </div>
 
-                <div>
-                    <h3 className="text-xl font-semibold mb-2">Required Skills</h3>
-                    <div className="flex flex-wrap gap-2">
-                        {task.tags.map(tag => (
-                            <Badge variant="outline" key={tag}>{tag}</Badge>
-                        ))}
+                {task.required_skills && task.required_skills.length > 0 && (
+                    <div>
+                        <h3 className="text-xl font-semibold mb-2">Required Skills</h3>
+                        <div className="flex flex-wrap gap-2">
+                            {task.required_skills.map((tag: string) => (
+                                <Badge variant="outline" key={tag}>{tag}</Badge>
+                            ))}
+                        </div>
                     </div>
-                </div>
+                )}
             </div>
 
             {/* Action Sidebar (Right Column) */}
@@ -117,9 +184,12 @@ export default function TaskDetails() {
                                         value={pitch}
                                         onChange={(e) => setPitch(e.target.value)}
                                         required
+                                        disabled={actionLoading}
                                     />
                                 </div>
-                                <Button type="submit" className="w-full">Apply for Job</Button>
+                                <Button type="submit" className="w-full" disabled={actionLoading}>
+                                    {actionLoading ? "Applying..." : "Apply for Job"}
+                                </Button>
                             </form>
                         )}
                     </CardContent>
@@ -128,34 +198,48 @@ export default function TaskDetails() {
                 {/* Client View: Applicants List */}
                 {isClientOwner && (
                     <div className="space-y-4">
-                        <h3 className="text-xl font-semibold">Applicants ({MOCK_APPLICANTS.length})</h3>
+                        <h3 className="text-xl font-semibold">Applicants ({applicants.length})</h3>
                         <div className="space-y-4">
-                            {MOCK_APPLICANTS.map(app => (
+                            {applicants.map(app => (
                                 <Card key={app.id}>
                                     <CardHeader className="pb-2">
                                         <div className="flex justify-between items-start">
                                             <div className="flex items-center gap-3">
                                                 <Avatar>
-                                                    <AvatarFallback>{app.name.charAt(0)}</AvatarFallback>
+                                                    <AvatarFallback>{app.profiles?.full_name?.charAt(0) || "U"}</AvatarFallback>
                                                 </Avatar>
                                                 <div>
-                                                    <CardTitle className="text-base">{app.name}</CardTitle>
-                                                    <CardDescription>⭐ {app.reliability} Reliability</CardDescription>
+                                                    <CardTitle className="text-base">{app.profiles?.full_name}</CardTitle>
+                                                    <CardDescription>⭐ {app.profiles?.reliability_score} Reliability</CardDescription>
                                                 </div>
                                             </div>
+                                            {app.status === 'ACCEPTED' && (
+                                                <Badge className="bg-green-500">Hired</Badge>
+                                            )}
                                         </div>
                                     </CardHeader>
                                     <CardContent className="pb-3">
-                                        <p className="text-sm italic text-muted-foreground">"{app.pitch}"</p>
+                                        <p className="text-sm italic text-muted-foreground">"{app.pitch_message}"</p>
                                     </CardContent>
                                     <CardFooter>
                                         <div className="flex gap-2 w-full">
-                                            <Button variant="outline" className="w-full">Chat</Button>
-                                            <Button onClick={() => handleAssign(app.name)} className="w-full">Assign</Button>
+                                            <Button variant="outline" className="w-full" disabled={app.status === 'ACCEPTED'}>Chat</Button>
+                                            {task.status === 'OPEN' && (
+                                                <Button
+                                                    onClick={() => handleAssign(app.id, app.freelancer_id)}
+                                                    className="w-full"
+                                                    disabled={actionLoading}
+                                                >
+                                                    Assign
+                                                </Button>
+                                            )}
                                         </div>
                                     </CardFooter>
                                 </Card>
                             ))}
+                            {applicants.length === 0 && (
+                                <p className="text-sm text-muted-foreground border p-4 rounded-md text-center">No applicants yet.</p>
+                            )}
                         </div>
                     </div>
                 )}
