@@ -1,9 +1,10 @@
-import { Link } from "react-router-dom"
+import { Link, useNavigate } from "react-router-dom"
 import { useAuth } from "@/context/AuthContext"
 import { Button } from "@/components/ui/button"
 
 export default function Navbar() {
     const { session, signOut } = useAuth()
+    const navigate = useNavigate()
 
     return (
         <nav className="border-b bg-background sticky top-0 z-50">
@@ -21,7 +22,10 @@ export default function Navbar() {
                             <Link to="/dashboard">
                                 <Button variant="ghost">Dashboard</Button>
                             </Link>
-                            <Button onClick={signOut} variant="outline">Sign out</Button>
+                            <Button onClick={async () => {
+                                await signOut()
+                                navigate("/")
+                            }} variant="outline">Sign out</Button>
                         </>
                     ) : (
                         <>

@@ -49,7 +49,7 @@ export default function Dashboard() {
 
             // 4. Freelancer: Pending Applications
             const { data: apps } = await supabase.from('applications')
-                .select('*, tasks(title)')
+                .select('*, tasks(title, client_id)')
                 .eq('freelancer_id', uid)
                 .eq('status', 'PENDING')
             if (apps) setPendingApps(apps)
@@ -157,9 +157,12 @@ export default function Dashboard() {
                                             <h4 className="font-semibold">{task.title}</h4>
                                             <p className="text-sm text-muted-foreground">Client: {task.profiles?.full_name} • Due: {new Date(task.deadline).toLocaleDateString()}</p>
                                         </div>
-                                        <div className="text-right">
+                                        <div className="flex flex-col items-end gap-2">
                                             <div className="font-bold text-green-600">₹{task.budget}</div>
                                             <Badge className="mt-1" variant="secondary">In Progress</Badge>
+                                            <Link to={`/chat/${task.id}`}>
+                                                <Button size="sm" variant="outline">Message Client</Button>
+                                            </Link>
                                         </div>
                                     </div>
                                 ))}
@@ -185,7 +188,14 @@ export default function Dashboard() {
                                             <h4 className="font-semibold">{app.tasks?.title || "Unknown Task"}</h4>
                                             <p className="text-sm text-muted-foreground">Applied {new Date(app.created_at).toLocaleDateString()}</p>
                                         </div>
-                                        <Badge variant="outline">Pending</Badge>
+                                        <div className="flex flex-col items-end gap-2">
+                                            <Badge variant="outline">Pending</Badge>
+                                            {app.tasks?.client_id && (
+                                                <Link to={`/chat/${app.task_id}/${app.tasks.client_id}`}>
+                                                    <Button size="sm" variant="ghost">Message Client</Button>
+                                                </Link>
+                                            )}
+                                        </div>
                                     </div>
                                 ))}
                                 {pendingApps.length === 0 && (

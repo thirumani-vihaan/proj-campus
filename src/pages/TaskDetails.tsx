@@ -170,9 +170,14 @@ export default function TaskDetails() {
                                 <p className="text-sm text-muted-foreground mt-1">Review your applicants below.</p>
                             </div>
                         ) : applied ? (
-                            <div className="text-center p-4 bg-green-50 text-green-800 rounded-lg border border-green-200">
-                                <p className="font-medium">✨ Application Submitted!</p>
-                                <p className="text-sm mt-1">The client will review your pitch.</p>
+                            <div className="text-center space-y-4">
+                                <div className="p-4 bg-green-50 text-green-800 rounded-lg border border-green-200">
+                                    <p className="font-medium">✨ Application Submitted!</p>
+                                    <p className="text-sm mt-1">The client will review your pitch.</p>
+                                </div>
+                                <Link to={`/chat/${task.id}/${task.client_id}`}>
+                                    <Button variant="outline" className="w-full">Message Client</Button>
+                                </Link>
                             </div>
                         ) : (
                             <form onSubmit={handleApply} className="space-y-4">
@@ -223,7 +228,9 @@ export default function TaskDetails() {
                                     </CardContent>
                                     <CardFooter>
                                         <div className="flex gap-2 w-full">
-                                            <Button variant="outline" className="w-full" disabled={app.status === 'ACCEPTED'}>Chat</Button>
+                                            <Link to={`/chat/${task.id}/${app.freelancer_id}`} className="w-full">
+                                                <Button variant="outline" className="w-full">Chat</Button>
+                                            </Link>
                                             {task.status === 'OPEN' && (
                                                 <Button
                                                     onClick={() => handleAssign(app.id, app.freelancer_id)}
